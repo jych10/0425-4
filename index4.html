@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bio-Escape 3D: The Crossroad</title>
+    <style>
+        :root {
+            --blood-red: #ff3333;
+            --vein-blue: #0055ff;
+            --nerve-gold: #ffd700;
+            --wall-color: #1a0505;
+        }
+
+        body {
+            margin: 0;
+            background-color: #000;
+            color: white;
+            font-family: 'Segoe UI', "Microsoft JhengHei", sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* 頂部 HUD */
+        #hud {
+            width: 100%;
+            padding: 15px;
+            display: flex;
+            justify-content: space-around;
+            background: linear-gradient(to bottom, #300, #000);
+            border-bottom: 2px solid var(--blood-red);
+            z-index: 20;
+        }
+        .stat-item { text-align: center; }
+        .value { display: block; font-size: 1.3em; color: var(--nerve-gold); font-weight: bold; }
+
+        /* 3D 視窗 */
+        #viewport {
+            position: relative;
+            width: 100vw;
+            height: 85vh;
+            perspective: 1000px;
+            overflow: hidden;
+        }
+
+        #maze-3d {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: transform 0.5s ease;
+        }
+
+        /* 路口門戶 */
+        .crossroad-container {
+            display: flex;
+            gap: 50px;
+            transform-style: preserve-3d;
+        }
+
+        .door {
+            width: 250px;
+            height: 400px;
+            background: linear-gradient(45deg, #200, #400);
+            border: 4px solid var(--vein-blue);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 30px rgba(0, 85, 255, 0.3);
+            padding: 20px;
+            text-align: center;
+        }
+
+        .door:hover {
+            transform: scale(1.05) translateZ(50px);
+            border-color: var(--nerve-gold);
+            box-shadow: 0 0 50px var(--nerve-gold);
+        }
+
+        .door-label {
+            font-size: 1.2em;
+            color: #fff;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+
+        /* 題目顯示區 */
+        #question-panel {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            max-width: 800px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 15px;
+            border-left: 5px solid var(--nerve-gold);
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        /* 撞牆視覺特效 */
+        .crash-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+            animation: flash 0.5s infinite;
+        }
+
+        @keyframes flash {
+            0% { opacity: 0.8; } 50% { opacity: 0.3; } 100% { opacity: 0.8; }
+        }
+
+        #menu-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, #300 0%, #000 100%);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+            text-align: center;
+        }
+
+        .btn-start {
+            padding: 15px 50px; font-size: 1.5em; cursor: pointer;
+            background: var(--blood-red); color: white; border: none; border-radius: 50px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="hud">
+    <div class="stat-item">⚡ 剩餘體力<span id="stamina" class="value">100</span></div>
+    <div class="stat-item">🧬 逃生進度<span id="steps" class="value">0 / 20</span></div>
+</div>
+
+<div id="viewport">
+    <div id="question-panel">
+        <h2 id="q-text">準備好了嗎？</h2>
+    </div>
+
+    <div id="maze-3d">
+        <div class="crossroad-container" id="doors-container">
+            </div>
+    </div>
+
+    <div id="crash-overlay" class="crash-overlay">
+        <h1 style="color: white; font-size: 4em; text-shadow: 0 0 20px #000;">⚠️ 撞擊牆壁!</h1>
+        <div id="correct-answer-hint" style="position: absolute; bottom: 100px; font-size: 2em;"></div>
+    </div>
+</div>
+
+<div id="menu-overlay">
+    <h1 style="font-size: 4em; color: var(--blood-red); text-shadow: 0 0 30px red;">BIO-LABYRINTH</h1>
+    <p>面前出現了岔路，只有正確的知識能引導你逃生。</p>
+    <button class="btn-start" onclick="startGame()">進入迷宮</button>
+</div>
+
+<script>
+    // --- 完整題庫 (包含 100 題) ---
+    const questions = [
+        { q: "突然感到頭暈、冒冷汗、手抖，最可能的原因？", a: ["低血糖", "高血壓", "脫水"], correct: 0 },
+        { q: "發生中暑時，第一時間該做什麼？", a: ["大量喝冰水", "移至陰涼處並鬆開衣物", "立刻吃退燒藥"], correct: 1 },
+        { q: "若發現有人失去意識且無呼吸，應立即施作？", a: ["哈姆立克法", "人工呼吸", "CPR與AED"], correct: 2 },
+        { q: "異物梗塞無法發聲時，應採取？", a: ["哈姆立克法", "大量拍背", "催吐"], correct: 0 },
+        { q: "燒燙傷處理的第一步？", a: ["塗抹牙膏", "沖冷水 20 分鐘", "冰敷"], correct: 1 },
+        { q: "流鼻血時頭部應維持什麼姿勢？", a: ["向後仰", "稍微前傾", "平躺"], correct: 1 },
+        { q: "嚴重出血時，應優先採取？", a: ["直接壓迫止血", "抹止血粉", "大量沖水"], correct: 0 },
+        { q: "懷疑骨折時，首要原則是？", a: ["嘗試推回原位", "固定傷處並減少移動", "揉捏消腫"], correct: 1 },
+        { q: "腦中風辨識口訣「FAST」中的 F 代表？", a: ["臉部歪斜(Face)", "發燒(Fever)", "昏倒(Faint)"], correct: 0 },
+        { q: "過敏性休克常見徵兆不包含？", a: ["呼吸困難", "血壓下降", "食慾大增"], correct: 2 },
+        { q: "心肌梗塞發作時的典型疼痛感？", a: ["尖銳刺痛", "胸口壓迫重物感", "腹部悶痛"], correct: 1 },
+        { q: "腳踝扭傷後的 RICE 原則，I 代表？", a: ["適度運動", "冰敷(Ice)", "碘酒消毒"], correct: 1 },
+        { q: "毒蛇咬傷後，哪項是錯誤的？", a: ["用嘴吸毒液", "保持冷靜減少移動", "記住蛇特徵"], correct: 0 },
+        { q: "癲癇發作時，下列何者正確？", a: ["強行塞入物品至口中", "保護頭部不撞傷", "用力按住肢體"], correct: 1 },
+        { q: "溺水者救起後，即使神智清醒也應就醫，預防？", a: ["二次溺水", "胃出血", "感冒"], correct: 0 },
+        { q: "蜂螫後若有留針，應如何處理？", a: ["用手擠出", "以信用卡或鑷子輕刮", "直接拔除"], correct: 1 },
+        { q: "氣喘發作呼吸困難時，應優先？", a: ["立刻跑步心肺訓練", "使用支氣管擴張噴霧", "大量喝溫水"], correct: 1 },
+        { q: "一氧化碳中毒的特徵？", a: ["皮膚發紫", "櫻桃紅唇色", "咳嗽不止"], correct: 1 },
+        { q: "貓狗咬傷後，最擔心的傳染病是？", a: ["破傷風", "狂犬病", "敗血症"], correct: 1 },
+        { q: "感覺快暈倒時應？", a: ["立刻蹲下或平躺", "快步走動", "向上仰頭"], correct: 0 },
+        { q: "成人每日建議鈉攝取量不應超過？", a: ["2400mg", "5000mg", "1000mg"], correct: 0 },
+        { q: "哪種脂肪對心血管健康危害最大？", a: ["飽和脂肪", "反式脂肪", "不飽和脂肪"], correct: 1 },
+        { q: "預防骨質疏鬆應補充？", a: ["鈣與維生素D", "維生素C", "鐵質"], correct: 0 },
+        { q: "深綠色蔬菜含有豐富的什麼？", a: ["維生素A與葉酸", "維生素B12", "維生素D"], correct: 0 },
+        { q: "何者是優質蛋白質來源？", a: ["培根", "毛豆/雞蛋", "薯條"], correct: 1 },
+        { q: "長時間運動中主要補充？", a: ["高纖維食物", "運動飲料與電解質", "純咖啡"], correct: 1 },
+        { q: "地中海飲食的核心油脂是？", a: ["橄欖油", "豬油", "棕櫚油"], correct: 0 },
+        { q: "維生素 C 主要存在於？", a: ["五穀類", "肉類", "蔬菜水果"], correct: 2 },
+        { q: "預防缺鐵性貧血，可搭配什麼提升鐵質吸收？", a: ["茶", "維生素C", "牛奶"], correct: 1 },
+        { q: "下列何者為高 GI (升糖指數) 食物？", a: ["糙米", "白吐司", "燕麥"], correct: 1 },
+        { q: "「天天五蔬果」是指？", a: ["三份蔬菜兩份水果", "五種水果", "五盤青菜"], correct: 0 },
+        { q: "紅酒含有的哪種抗氧化成分常被提及？", a: ["白藜蘆醇", "咖啡因", "胡蘿蔔素"], correct: 0 },
+        { q: "長期缺乏維生素 A 易導致？", a: ["壞血病", "夜盲症", "腳氣病"], correct: 1 },
+        { q: "何種維生素可以靠曬太陽產生？", a: ["維生素D", "維生素E", "維生素K"], correct: 0 },
+        { q: "哪種營養素是人體主要的能量來源？", a: ["蛋白質", "碳水化合物", "礦物質"], correct: 1 },
+        { q: "下列何者不是全穀雜糧類？", a: ["玉米", "白麵條", "地瓜"], correct: 1 },
+        { q: "素食者較易缺乏哪種維生素？", a: ["維生素C", "維生素B12", "維生素A"], correct: 1 },
+        { q: "減少精緻糖攝取可預防？", a: ["齲齒與肥胖", "近視", "過敏"], correct: 0 },
+        { q: "何種礦物質與肌肉抽筋密切相關？", a: ["鐵", "鉀與鎂", "鋅"], correct: 1 },
+        { q: "喝牛奶後腹瀉可能是？", a: ["乳糖不耐症", "牛奶中毒", "脂肪消化不良"], correct: 0 },
+        { q: "人類正常的體溫範圍大約是？", a: ["35.5-36℃", "36.5-37.5℃", "38-39℃"], correct: 1 },
+        { q: "正常的靜止心跳率(RHR)約為每分鐘？", a: ["60-100次", "120-150次", "40-50次"], correct: 0 },
+        { q: "成人每日建議飲水量（公式）？", a: ["體重x30cc", "體重x10cc", "不論體重一律4公升"], correct: 0 },
+        { q: "正常的收縮壓/舒張壓應低於？", a: ["120/80 mmHg", "140/90 mmHg", "160/100 mmHg"], correct: 0 },
+        { q: "人體最大的器官是？", a: ["肺", "肝臟", "皮膚"], correct: 2 },
+        { q: "紅血球的主要功能是？", a: ["免疫防禦", "運輸氧氣", "凝血"], correct: 1 },
+        { q: "胰島素是由哪個器官分泌的？", a: ["胃", "胰臟", "膽囊"], correct: 1 },
+        { q: "熬夜最直接傷害哪個器官的代謝功能？", a: ["大腦與肝臟", "肌肉", "大腸"], correct: 0 },
+        { q: "近視是因為影像聚焦在視網膜之？", a: ["前方", "後方", "正上方"], correct: 0 },
+        { q: "人體骨骼共有多少塊？", a: ["106塊", "206塊", "306塊"], correct: 1 },
+        { q: "哪種血型被稱為全能捐血者？", a: ["A型", "B型", "O型"], correct: 2 },
+        { q: "胃酸的主要成分是？", a: ["硫酸", "鹽酸", "醋酸"], correct: 1 },
+        { q: "疫苗的主要作用是？", a: ["治療疾病", "產生抗體預防感染", "增強肌力"], correct: 1 },
+        { q: "抗生素是用來治療哪種感染？", a: ["病毒", "細菌", "過敏"], correct: 1 },
+        { q: "正常成年人的睡眠時間建議為？", a: ["4-5小時", "7-9小時", "10-12小時"], correct: 1 },
+        { q: "藍光主要會影響褪黑激素分泌，干擾？", a: ["食慾", "睡眠品質", "聽力"], correct: 1 },
+        { q: "洗手的正確步驟？", a: ["濕搓沖捧擦", "濕沖擦", "沖脫泡蓋送"], correct: 0 },
+        { q: "預防蛀牙，牙膏應選含什麼成分？", a: ["氟(Fluoride)", "木醣醇", "薄荷"], correct: 0 },
+        { q: "抽菸會直接增加哪種癌症風險？", a: ["肺癌", "胃癌", "皮膚癌"], correct: 0 },
+        { q: "PM2.5 指的是直徑小於 2.5 微米的？", a: ["重金屬", "細懸浮微粒", "氣體"], correct: 1 },
+        { q: "有氧運動是指持續多久以上的活動？", a: ["10秒", "20-30分鐘", "5小時"], correct: 1 },
+        { q: "重訓後肌肉痠痛，主要是因為？", a: ["肌肉撕裂與修補", "骨頭受傷", "脂肪堆積"], correct: 0 },
+        { q: "計算最大心跳率的簡便公式？", a: ["220-年齡", "100+年齡", "180-體重"], correct: 0 },
+        { q: "柔軟度訓練(拉伸)的最佳時機？", a: ["起床立刻", "運動後肌肉溫熱時", "吃飯前"], correct: 1 },
+        { q: "深蹲主要鍛鍊哪個肌群？", a: ["背肌", "下肢肌群", "胸肌"], correct: 1 },
+        { q: "健走的標準姿勢，手部應？", a: ["插口袋", "自然擺動", "舉高過頭"], correct: 1 },
+        { q: "運動前暖身的主要目的是？", a: ["增加美觀", "提高體溫預防受傷", "消耗體脂"], correct: 1 },
+        { q: "核心肌群不包括哪裡？", a: ["腹部", "背部", "手指"], correct: 2 },
+        { q: "「中強度」運動的感覺是？", a: ["可以唱歌", "微喘但能說話", "無法呼吸"], correct: 1 },
+        { q: "運動後收操有助於？", a: ["緩解乳酸堆積", "立刻長肌肉", "變矮"], correct: 0 },
+        { q: "慢跑屬於？", a: ["有氧運動", "無氧運動", "伸展運動"], correct: 0 },
+        { q: "哪項不是久坐對健康的危害？", a: ["心血管疾病", "視力變強", "代謝症候群"], correct: 1 },
+        { q: "游泳適合肥胖者是因為？", a: ["水溫涼快", "水的浮力減輕關節壓力", "水中有氧氣"], correct: 1 },
+        { q: "仰臥起坐主要是訓練？", a: ["腹肌", "小腿", "脖子"], correct: 0 },
+        { q: "運動中發生側腹痛，應？", a: ["加快速度", "放慢並配合呼吸", "立刻坐下休息"], correct: 1 },
+        { q: "肌肉重量比脂肪重量？", a: ["輕", "重(密度大)", "一樣"], correct: 1 },
+        { q: "長期重量訓練有助於提升？", a: ["基礎代謝率", "身高", "聽力"], correct: 0 },
+        { q: "平衡力訓練可降低哪類族群受傷風險？", a: ["銀髮族預防跌倒", "嬰兒", "職業選手"], correct: 0 },
+        { q: "膝蓋受傷時，應避免？", a: ["深蹲與爬樓梯", "睡覺", "吃飯"], correct: 0 },
+        { q: "運動後補充什麼有助於肌肉修復？", a: ["碳水與蛋白質", "純糖水", "大量酒精"], correct: 0 },
+        { q: "長期壓力會導致哪種賀爾盟分泌過多？", a: ["生長激素", "皮質醇", "褪黑激素"], correct: 1 },
+        { q: "練習「正念」的核心目標是？", a: ["檢討過去", "專注當下不評判", "預測未來"], correct: 1 },
+        { q: "當感到極度憤怒時，較佳做法是？", a: ["立刻回擊", "深呼吸並數到十", "壓抑情緒"], correct: 1 },
+        { q: "充足的社交支持對健康有什麼影響？", a: ["沒有影響", "有助紓壓與長壽", "變老"], correct: 1 },
+        { q: "憂鬱症與單純心情不好，差別在於？", a: ["持續時間與功能影響", "流淚", "吃藥"], correct: 0 },
+        { q: "適度的壓力在心理學上被稱為？", a: ["惡性壓力", "良性壓力", "無效壓力"], correct: 1 },
+        { q: "良好的睡前儀式應避免？", a: ["閱讀紙本書", "使用發光電子產品", "聽輕音樂"], correct: 1 },
+        { q: "「生理回饋」技術常用來控制？", a: ["身高", "自主神經系統", "指甲生長"], correct: 1 },
+        { q: "遇到挫折時的「復原力」是指？", a: ["忘記事情", "從逆境恢復的能力", "力氣"], correct: 1 },
+        { q: "長期社交孤立會增加哪種疾病風險？", a: ["認知障礙/失智", "近視", "蛀牙"], correct: 0 },
+        { q: "笑對生理的好處不包括？", a: ["釋放多巴胺", "降低壓力", "增加肺活量"], correct: 2 },
+        { q: "哪種運動對心理紓壓效果顯著？", a: ["瑜伽或散步", "極端憋氣", "熬夜"], correct: 0 },
+        { q: "心理諮商的對象是？", a: ["瘋子", "任何想改善生活情緒的人", "有錢人"], correct: 1 },
+        { q: "寫日記對心理健康的益處？", a: ["打字速度", "情緒覺察與宣洩", "消耗熱量"], correct: 1 },
+        { q: "對他人的「同理心」是指？", a: ["同意對方觀點", "設身處地感受情緒", "金錢資助"], correct: 1 },
+        { q: "深呼吸練習時，應強調？", a: ["胸部呼吸", "呼氣長於吸氣", "憋氣越久越好"], correct: 1 },
+        { q: "心理上的「燃盡(Burnout)」常發生在？", a: ["睡眠過度", "長期過勞高壓工作", "看電視"], correct: 1 },
+        { q: "焦慮時常見的生理反應？", a: ["肌肉放鬆", "心跳加速手汗", "嗜睡"], correct: 1 },
+        { q: "肯定自己的正面特質稱為？", a: ["自戀", "自我肯定/自尊", "自大"], correct: 1 },
+        { q: "面對親友過世的情緒歷程稱為？", a: ["叛逆期", "悲傷輔導/哀悼", "更年期"], correct: 1 }
+    ];
+
+    let gameState = {
+        stamina: 100,
+        currentStep: 0,
+        totalSteps: 20,
+        active: false,
+        usedIndices: []
+    };
+
+    function startGame() {
+        document.getElementById('menu-overlay').style.display = 'none';
+        gameState.active = true;
+        gameState.stamina = 100;
+        gameState.currentStep = 0;
+        gameState.usedIndices = [];
+        updateUI();
+        nextLevel();
+    }
+
+    function nextLevel() {
+        if (!gameState.active) return;
+        
+        // 隨機選題
+        let index;
+        do {
+            index = Math.floor(Math.random() * questions.length);
+        } while (gameState.usedIndices.includes(index));
+        gameState.usedIndices.push(index);
+        
+        const qData = questions[index];
+        document.getElementById('q-text').innerText = `[關卡 ${gameState.currentStep + 1}] ${qData.q}`;
+        
+        // 生成路口
+        const container = document.getElementById('doors-container');
+        container.innerHTML = '';
+        
+        // 答案隨機排序
+        let options = qData.a.map((text, i) => ({ text, originalIdx: i }));
+        options.sort(() => Math.random() - 0.5);
+
+        options.forEach(opt => {
+            const door = document.createElement('div');
+            door.className = 'door';
+            door.innerHTML = `
+                <div style="font-size: 3em;">🚪</div>
+                <div class="door-label">${opt.text}</div>
+            `;
+            door.onclick = () => handleChoice(opt.originalIdx, qData.correct, qData.a[qData.correct]);
+            container.appendChild(door);
+        });
+
+        // 3D 進入動畫
+        const maze = document.getElementById('maze-3d');
+        maze.style.transition = 'none';
+        maze.style.transform = 'translateZ(-500px) scale(0.5)';
+        setTimeout(() => {
+            maze.style.transition = 'transform 0.8s ease-out';
+            maze.style.transform = 'translateZ(0px) scale(1)';
+        }, 50);
+    }
+
+    function handleChoice(chosen, correct, correctText) {
+        if (chosen === correct) {
+            // 答對動畫：衝入正確門戶
+            const maze = document.getElementById('maze-3d');
+            maze.style.transform = 'translateZ(1000px) scale(2)';
+            gameState.currentStep++;
+            updateUI();
+            
+            setTimeout(() => {
+                if (gameState.currentStep >= gameState.totalSteps) endGame(true);
+                else nextLevel();
+            }, 600);
+        } else {
+            // 答錯動畫：撞牆
+            showCrash(correctText);
+            gameState.stamina -= 20;
+            updateUI();
+            
+            setTimeout(() => {
+                if (gameState.stamina <= 0) endGame(false);
+                else nextLevel();
+            }, 2500);
+        }
+    }
+
+    function showCrash(correctText) {
+        const overlay = document.getElementById('crash-overlay');
+        const hint = document.getElementById('correct-answer-hint');
+        hint.innerText = `正確答案是：${correctText}`;
+        overlay.style.display = 'flex';
+        
+        setTimeout(() => {
+            overlay.style.display = 'none';
+        }, 2500);
+    }
+
+    function updateUI() {
+        document.getElementById('stamina').innerText = gameState.stamina;
+        document.getElementById('steps').innerText = `${gameState.currentStep} / ${gameState.totalSteps}`;
+    }
+
+    function endGame(isWin) {
+        gameState.active = false;
+        const menu = document.getElementById('menu-overlay');
+        menu.style.display = 'flex';
+        if (isWin) {
+            menu.innerHTML = `
+                <h1 style="color:var(--nerve-gold)">逃出成功！</h1>
+                <p>你完美通過了 20 個知識岔路。</p>
+                <button class="btn-start" onclick="location.reload()">重新遊玩</button>
+            `;
+        } else {
+            menu.innerHTML = `
+                <h1 style="color:red">體力衰竭</h1>
+                <p>你在迷宮中撞擊過多，無法前行。</p>
+                <button class="btn-start" onclick="location.reload()">再次嘗試</button>
+            `;
+        }
+    }
+</script>
+
+</body>
+</html>
